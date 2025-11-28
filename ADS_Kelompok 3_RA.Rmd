@@ -1,0 +1,273 @@
+---
+title: "Tubes ADS"
+author: "Alfaya Rafif Abiyyi"
+date: "2025-11-26"
+output: html_document
+---
+
+```{r}
+# 1. IMPORT & PREPROCESSING DATA
+
+library(readxl)
+library(dplyr)
+library(ggplot2)
+
+# Import dataset
+data <- read_excel("D:/coding/tubes ads/Dataset Tugas Besar ADS 2025.xlsx")
+
+# Rapikan nama kolom
+names(data) <- make.names(names(data))
+
+# Ambil variabel penting dan filter SMA/SMK
+df <- data %>%
+  select(Pendidikan.terakhir, IPK.Terakhir..) %>%
+  filter(Pendidikan.terakhir %in% c("SMA", "SMK"))
+
+# Bersihkan IPK
+df$IPK.Terakhir.. <- as.character(df$IPK.Terakhir..)
+df$IPK.Terakhir.. <- trimws(df$IPK.Terakhir..)
+df$IPK.Terakhir.. <- gsub(",", ".", df$IPK.Terakhir..)
+df$IPK.Terakhir.. <- as.numeric(df$IPK.Terakhir..)
+
+# Buang NA & nilai tidak mungkin
+df <- df %>% filter(!is.na(IPK.Terakhir..))
+df <- df %>% filter(IPK.Terakhir.. >= 0 & IPK.Terakhir.. <= 4)
+
+# Tambahkan kolom lulus (IPK >= 3.5)
+df$lusus <- ifelse(df$IPK.Terakhir.. >= 3.5, 1, 0)
+
+
+# 2. DISTRIBUSI SAMPLING: MEAN, PROPORSI, VARIANS
+
+set.seed(123)
+
+# Mean
+sample_means_SMA <- replicate(
+  1000,
+  mean(sample(df$IPK.Terakhir..[df$Pendidikan.terakhir == "SMA"],
+              size = 30, replace = TRUE))
+)
+
+sample_means_SMK <- replicate(
+  1000,
+  mean(sample(df$IPK.Terakhir..[df$Pendidikan.terakhir == "SMK"],
+              size = 30, replace = TRUE))
+)
+
+# Proporsi (IPK >= 3.5)
+prop_SMA <- replicate(
+  1000,
+  mean(sample(df$lusus[df$Pendidikan.terakhir == "SMA"],
+              size = 30, replace = TRUE))
+)
+
+prop_SMK <- replicate(
+  1000,
+  mean(sample(df$lusus[df$Pendidikan.terakhir == "SMK"],
+              size = 30, replace = TRUE))
+)
+
+# Varians
+var_SMA <- replicate(
+  1000,
+  var(sample(df$IPK.Terakhir..[df$Pendidikan.terakhir == "SMA"],
+             size = 30, replace = TRUE))
+)
+
+var_SMK <- replicate(
+  1000,
+  var(sample(df$IPK.Terakhir..[df$Pendidikan.terakhir == "SMK"],
+             size = 30, replace = TRUE))
+)
+
+
+# 3. TABEL PERBANDINGAN IPK SMA vs SMK
+
+summary_table <- df %>%
+  group_by(Pendidikan.terakhir) %>%
+  summarise(
+    n = n(),
+    mean_IPK = mean(IPK.Terakhir..),
+    median_IPK = median(IPK.Terakhir..),
+    sd_IPK = sd(IPK.Terakhir..),
+    min_IPK = min(IPK.Terakhir..),
+    max_IPK = max(IPK.Terakhir..),
+    prop_lulus = mean(lusus)
+  )
+
+print(summary_table)
+
+
+# 4. BOXPLOT PERBANDINGAN IPK SMA vs SMK
+
+ggplot(df, aes(x = Pendidikan.terakhir, y = IPK.Terakhir.., fill = Pendidikan.terakhir)) +
+  geom_boxplot(alpha = 0.8, color = "black") +
+  scale_fill_manual(values = c(
+  "SMA" = "#FF6A00",
+  "SMK" = "#FFB56B"
+)) +
+  labs(
+    title = "Perbandingan IPK SMA vs SMK",
+    x = "Pendidikan Terakhir",
+    y = "IPK"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5)
+  )
+
+
+# 5. VISUALISASI MEAN, MEDIAN, MIN, MAX (SMA vs SMK)
+
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+if(!exists("df")) stop("Objek df tidak ditemukan. Jalankan preprocessing dulu.")
+
+stats_df <- df %>%
+  group_by(Pendidikan.terakhir) %>%
+  summarise(
+    Mean = mean(IPK.Terakhir..),
+    Median = median(IPK.Terakhir..),
+    Min = min(IPK.Terakhir..),
+    Max = max(IPK.Terakhir..)
+  ) %>%
+  pivot_longer(cols = -Pendidikan.terakhir, names_to = "Statistik", values_to = "Nilai") %>%
+  mutate(Statistik = factor(Statistik, levels = c("Max", "Mean", "Median", "Min")))
+
+gradient_list <- list(
+  Mean   = c("#FF6A00", "#FF8C42"),
+  Median = c("#FF8C42", "#FFB56B"),
+  Min    = c("#FFB56B", "#FFD6A5"),
+  Max    = c("#FFD6A5", "#FFEDE1")
+)
+
+make_colors <- function(col1, col2, n = 120) {
+  colorRampPalette(c(col1, col2))(n)
+}
+
+n_steps <- 120  
+tiles_list <- purrr::map2_df(
+  stats_df$Statistik, stats_df$Nilai,
+  .f = function(stat, nilai) {
+    cols <- make_colors(gradient_list[[as.character(stat)]][1],
+                        gradient_list[[as.character(stat)]][2],
+                        n = n_steps)
+  
+    y_bottoms <- seq(0, nilai, length.out = n_steps + 1)
+    tibble::tibble(
+      Statistik = factor(rep(stat, n_steps), levels = levels(stats_df$Statistik)),
+      ymin = y_bottoms[-(n_steps+1)],
+      ymax = y_bottoms[-1],
+      ymid = (ymin + ymax)/2,
+      fill = cols
+    )
+  }
+)
+
+group_keys <- stats_df %>% select(Pendidikan.terakhir, Statistik, Nilai)
+tiles_full <- purrr::map2_df(
+  seq_len(nrow(group_keys)),
+  seq_len(nrow(group_keys)),
+  .f = function(i, .) {
+    rk <- group_keys[i, ]
+    stat <- rk$Statistik
+    nilai <- rk$Nilai
+    cols <- make_colors(gradient_list[[as.character(stat)]][1],
+                        gradient_list[[as.character(stat)]][2],
+                        n = n_steps)
+    yb <- seq(0, nilai, length.out = n_steps + 1)
+    tibble::tibble(
+      Pendidikan.terakhir = rk$Pendidikan.terakhir,
+      Statistik = factor(rep(as.character(stat), n_steps), levels = levels(stats_df$Statistik)),
+      ymin = yb[-(n_steps+1)],
+      ymax = yb[-1],
+      ymid = (yb[-(n_steps+1)] + yb[-1]) / 2,
+      fill = cols
+    )
+  }
+)
+
+p <- ggplot() +
+  geom_tile(
+    data = tiles_full,
+    aes(x = Statistik, y = ymid, height = (ymax - ymin), width = 0.75, fill = fill),
+    color = NA
+  ) +
+  
+  geom_col(
+    data = stats_df,
+    aes(x = Statistik, y = Nilai),
+    fill = NA, color = "black", width = 0.75, linewidth = 0.6
+  ) +
+  facet_wrap(~ Pendidikan.terakhir) +
+  scale_fill_identity() +
+  labs(
+    title = "Perbandingan Mean, Median, Min, Max IPK",
+    x = "Statistik",
+    y = "Nilai IPK"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(size = 15, face = "bold", hjust = 0.5),
+    strip.text = element_text(size = 13, face = "bold")
+  )
+
+print(p)
+
+# 6. KESIMPULAN & PENJELASAN METODE
+
+
+cat("KESIMPULAN")
+
+# 1. Kesimpulan perbandingan IPK SMA vs SMK
+cat("\n>> Perbandingan IPK SMA vs SMK:\n")
+
+mean_SMA <- summary_table$mean_IPK[summary_table$Pendidikan.terakhir=="SMA"]
+mean_SMK <- summary_table$mean_IPK[summary_table$Pendidikan.terakhir=="SMK"]
+
+median_SMA <- summary_table$median_IPK[summary_table$Pendidikan.terakhir=="SMA"]
+median_SMK <- summary_table$median_IPK[summary_table$Pendidikan.terakhir=="SMK"]
+
+cat(sprintf(" - Rata-rata IPK SMA : %.3f\n", mean_SMA))
+cat(sprintf(" - Rata-rata IPK SMK : %.3f\n", mean_SMK))
+cat(sprintf(" - Median IPK SMA    : %.3f\n", median_SMA))
+cat(sprintf(" - Median IPK SMK    : %.3f\n", median_SMK))
+
+if(mean_SMA > mean_SMK){
+  cat("Kesimpulan: Rata-rata IPK siswa SMA lebih tinggi daripada SMK.\n")
+} else {
+  cat("Kesimpulan: Rata-rata IPK siswa SMK lebih tinggi daripada SMA.\n")
+}
+
+# 2. Kesimpulan proporsi lulus (IPK ≥ 3.5)
+cat("\n>> Proporsi lulus (IPK ≥ 3.5):\n")
+
+prop_SMA_true <- summary_table$prop_lulus[summary_table$Pendidikan.terakhir=="SMA"]
+prop_SMK_true <- summary_table$prop_lulus[summary_table$Pendidikan.terakhir=="SMK"]
+
+cat(sprintf(" - Proporsi lulus SMA : %.3f\n", prop_SMA_true))
+cat(sprintf(" - Proporsi lulus SMK : %.3f\n", prop_SMK_true))
+
+# 3. Penjelasan metode
+cat("PENJELASAN METODE")
+
+cat("\n1. Distribusi Sampling Rata-rata (Sampling Distribution of the Mean)\n")
+cat("   → Mengambil banyak sampel acak berulang untuk melihat distribusi mean.\n")
+cat("   → Digunakan untuk melihat stabilitas rata-rata IPK per kelompok SMA/SMK.\n")
+
+cat("\n2. Distribusi Sampling Proporsi\n")
+cat("   → Mengambil sampel lulus/tidak lulus (IPK>=3.5) lalu dihitung proporsinya.\n")
+cat("   → Berguna untuk melihat peluang kelulusan pada SMA vs SMK.\n")
+
+cat("\n3. Distribusi Sampling Varians\n")
+cat("   → Mengambil sampel berulang lalu menghitung nilai variansnya.\n")
+cat("   → Digunakan untuk melihat seberapa besar penyebaran IPK tiap kelompok.\n")
+
+cat("\n4. Visualisasi Boxplot\n")
+cat("   → Menunjukkan median, quartile, dan potensi outlier.\n")
+
+cat("\n5. Visualisasi Barplot Statistik Deskriptif\n")
+cat("   → Memperbandingkan Mean, Median, Min, Max antara SMA dan SMK.\n")
+```
